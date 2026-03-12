@@ -1,4 +1,5 @@
 ﻿using Dalamud.Utility;
+using ECommons.Logging;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using FFXIVClientStructs.Interop;
 using SomethingNeedDoing.Core.Interfaces;
@@ -43,6 +44,37 @@ public unsafe class AddonWrapper(string name) : IWrapper
         {
             foreach (var node in NodeList)
                 yield return new NodeWrapper(node);
+        }
+    }
+
+    [LuaDocs]
+    public void Fire(params object[] values)
+    {
+        var addonPtr = Addon;
+
+        if (addonPtr == null)
+        {
+            PluginLog.Warning($"[InputNumeric] Addon '{name}' not found.");
+            return;
+        }
+
+        if (!addonPtr->IsVisible)
+        {
+            PluginLog.Warning($"[InputNumeric] Addon '{name}' is not visible. Skipping callback.");
+            return;
+        }
+
+        try
+        {
+            object[] safeValues = [.. values.Select(v => v is long l ? (int)l : v)];
+
+            Callback.Fire(addonPtr, true, safeValues);
+
+            PluginLog.Debug($"[InputNumeric] Callback fired successfully for '{name}'.");
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Error($"[InputNumeric] Error firing callback for '{name}'. Types: [{string.Join(", ", values.Select(x => x.GetType().Name))}]\nException: {ex}");
         }
     }
 }
