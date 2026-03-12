@@ -28,7 +28,7 @@ public class LuaModuleManager
         RegisterModule(new PlayerModule());
         RegisterModule(new QuestsModule());
         RegisterModule(new SystemModule());
-
+        RegisterModule(new CommandModule());
         // Register Engines module documentation statically
         EnginesModule.RegisterDocumentationStatic(_documentation);
     }
