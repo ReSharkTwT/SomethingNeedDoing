@@ -1,7 +1,9 @@
 using Dalamud.Interface.Windowing;
 using ECommons;
+using SomethingNeedDoing.Core;
 using SomethingNeedDoing.Core.Interfaces;
 using SomethingNeedDoing.Gui;
+using SomethingNeedDoing.NativeMacro;
 
 namespace SomethingNeedDoing.Services;
 
@@ -12,6 +14,7 @@ public class CommandService
 
     private readonly IMacroScheduler _macroScheduler;
     private readonly WindowSystem _windowSystem;
+    private readonly MacroParser _macroParser; // ✅ 新增：注入 MacroParser
 
     private class SubCommand(string command, string description, Action<string> handler, bool showInHelp = true)
     {
@@ -24,10 +27,11 @@ public class CommandService
 
     private readonly SubCommand _rootCommand;
 
-    public CommandService(IMacroScheduler macroScheduler, WindowSystem windowSystem)
+    public CommandService(IMacroScheduler macroScheduler, WindowSystem windowSystem, MacroParser macroParser)
     {
         _macroScheduler = macroScheduler;
         _windowSystem = windowSystem;
+        _macroParser = macroParser; // ✅ 赋值
 
         _rootCommand = new("", "Open the main window", _ => _windowSystem.Toggle<MainWindow>());
         var runCommand = new SubCommand("run", "Run a macro, the name must be unique.", HandleRunCommand);
@@ -45,11 +49,15 @@ public class CommandService
         stopCommand.SubCommands.Add(new("all", "Stop all running macros.", _ => _macroScheduler.StopAllMacros()));
 
         var helpCommand = new SubCommand("help", "Show the help window.", _ => ShowHelp(), false);
+
+        // ✅ 新增：注册 command 子命令
+        var commandCommand = new SubCommand("command", "Execute a macro-only command (e.g., /click, /interact). Usage: /snd command <command>", HandleCommandCommand);
+
         //var cfgCommand = new SubCommand("cfg", "Change a configuration value.", HandleConfigCommand);
         var statusCommand = new SubCommand("status", "Toggle the running macros window.", _ => _windowSystem.Toggle<StatusWindow>());
         var changelogCommand = new SubCommand("changelog", "Toggle the changelog window.", _ => _windowSystem.Toggle<ChangelogWindow>());
 
-        _rootCommand.SubCommands.AddRange([runCommand, pauseCommand, stopCommand, helpCommand, resumeCommand, statusCommand, changelogCommand]);
+        _rootCommand.SubCommands.AddRange([runCommand, pauseCommand, stopCommand, helpCommand, resumeCommand, commandCommand, statusCommand, changelogCommand]);
 
         RegisterCommands();
     }
@@ -109,6 +117,7 @@ public class CommandService
             cmd.Handler(subArgs);
     }
 
+    // ✅ 更新 ShowHelp 以包含新命令说明
     private void ShowHelp()
     {
         Svc.Chat.PrintMessage("Commands:");
@@ -119,6 +128,7 @@ public class CommandService
                 Svc.Chat.PrintMessage($"{MainCommand} {cmd.Command} {subCmd.Command} - {subCmd.Description}");
         }
         Svc.Chat.PrintMessage($"{MainCommand} id <macro name> - Get the macro ID for a macro name.");
+        Svc.Chat.PrintMessage($"{MainCommand} command <text> - Execute a macro-only command (e.g., '/snd command /click Hotbar0.1').");
     }
 
     private void HandleRunCommand(string arguments)
@@ -201,6 +211,50 @@ public class CommandService
             Svc.Chat.PrintErrorMsg($"Macro '{macroName}' not found.");
     }
 
+    // ✅ 修正版：核心执行逻辑
+    private void HandleCommandCommand(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+        {
+            Svc.Chat.PrintErrorMsg("Usage: /snd command <macro command>");
+            Svc.Chat.PrintMessage("Example: /snd command /click SelectYesno Yes");
+            Svc.Chat.PrintMessage("Example: /snd command /target PlayerName");
+            return;
+        }
+
+        var commandText = arguments.Trim();
+        if (!commandText.StartsWith("/"))
+        {
+            commandText = "/" + commandText;
+        }
+
+        try
+        {
+            // 1. 创建临时宏对象
+            var tempMacro = new ConfigMacro
+            {
+                // Id 会自动生成
+
+                // ✅ 修复点：先生成完整 N 格式字符串，再截取前 8 位
+                Name = $"TempCmd_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
+
+                Content = commandText,
+                Type = MacroType.Native,
+                Metadata = new MacroMetadata(),
+                FolderPath = ConfigMacro.Root
+            };
+
+            // 2. 启动宏
+            _ = _macroScheduler.StartMacro(tempMacro);
+
+            Svc.Chat.PrintMessage($"Executing macro command: {commandText}");
+        }
+        catch (Exception ex)
+        {
+            Svc.Chat.PrintErrorMsg($"Failed to execute command: {ex.Message}");
+            Svc.Chat.PrintErrorMsg("Tip: Ensure the command is valid in a standard FFXIV macro.");
+        }
+    }
     //private void HandleConfigCommand(string arguments)
     //{
     //    var args = arguments.Split(" ");
