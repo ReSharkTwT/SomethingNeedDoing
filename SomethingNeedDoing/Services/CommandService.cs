@@ -50,8 +50,7 @@ public class CommandService
 
         var helpCommand = new SubCommand("help", "Show the help window.", _ => ShowHelp(), false);
 
-        // ✅ 新增：注册 command 子命令
-        var commandCommand = new SubCommand("command", "Execute a macro-only command (e.g., /click, /interact). Usage: /snd command <command>", HandleCommandCommand);
+        var commandCommand = new SubCommand("command", "Execute a macro-only command (e.g., /target <name>, /interact). Usage: /snd command <macro command>", HandleCommandCommand);
 
         //var cfgCommand = new SubCommand("cfg", "Change a configuration value.", HandleConfigCommand);
         var statusCommand = new SubCommand("status", "Toggle the running macros window.", _ => _windowSystem.Toggle<StatusWindow>());
@@ -128,7 +127,7 @@ public class CommandService
                 Svc.Chat.PrintMessage($"{MainCommand} {cmd.Command} {subCmd.Command} - {subCmd.Description}");
         }
         Svc.Chat.PrintMessage($"{MainCommand} id <macro name> - Get the macro ID for a macro name.");
-        Svc.Chat.PrintMessage($"{MainCommand} command <text> - Execute a macro-only command (e.g., '/snd command /click Hotbar0.1').");
+        Svc.Chat.PrintMessage($"{MainCommand} command <text> - Execute a macro-only command (e.g., '/snd command /target <name>').");
     }
 
     private void HandleRunCommand(string arguments)
@@ -218,7 +217,7 @@ public class CommandService
         {
             Svc.Chat.PrintErrorMsg("Usage: /snd command <macro command>");
             Svc.Chat.PrintMessage("Example: /snd command /click SelectYesno Yes");
-            Svc.Chat.PrintMessage("Example: /snd command /target PlayerName");
+            Svc.Chat.PrintMessage("Example: /snd command /target <name>");
             return;
         }
 
