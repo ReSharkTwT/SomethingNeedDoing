@@ -28,7 +28,6 @@ public sealed class Plugin : IDalamudPlugin
         C = EzConfig.Init<Config>();
         Config.Migrate(C);
         Config.InitializeFileWatcher();
-
         _serviceProvider = new ServiceCollection().SetupPluginServices().BuildServiceProvider();
         _ = _serviceProvider.GetRequiredService<WindowService>();
         _ = _serviceProvider.GetRequiredService<CommandService>();

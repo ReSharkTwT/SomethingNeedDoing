@@ -26,6 +26,20 @@ public static class SettingsTab
                 C.Save();
             }
 
+            var installCallbackHook = C.InstallCallbackHook;
+            if (ImGui.Checkbox("启用CallBackHook插件", ref installCallbackHook))
+            {
+                C.InstallCallbackHook = installCallbackHook;
+                C.Save();
+                if (installCallbackHook){
+                    Callback.InstallHook();
+                }
+                else
+                {
+                    Callback.UninstallHook();
+                }
+            }
+
             var propagatePause = C.PropagateControlsToChildren;
             if (ImGui.Checkbox("Propagate Controls to Child Macros", ref propagatePause))
             {

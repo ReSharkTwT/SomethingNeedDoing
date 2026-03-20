@@ -58,6 +58,7 @@ public class Config
     public XivChatType ChatType { get; set; } = XivChatType.Debug;
     public XivChatType ErrorChatType { get; set; } = XivChatType.Urgent;
 
+    public bool InstallCallbackHook { get; set; } = false;
     /// <summary>
     /// Gets or sets whether pausing a macro should also pause its child macros.
     /// </summary>

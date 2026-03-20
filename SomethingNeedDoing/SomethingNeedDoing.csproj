@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<Version>0.0.0.0</Version>
 		<LangVersion>preview</LangVersion>
-		<PlatformsTarget>AnyCPU</PlatformsTarget>
+		<PlatformsTarget>x64</PlatformsTarget>
 		<Platforms>AnyCPU;x64</Platforms>
 	</PropertyGroup>
 

@@ -1,0 +1,35 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "dotnet: build x64 Debug",
+            "command": "dotnet",
+            "type": "shell",
+            "args": [
+                "build",
+                "-c", "Debug",
+                "-p:Platform=x64"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        },
+        {
+            "label": "dotnet: build x64 Release",
+            "command": "dotnet",
+            "type": "shell",
+            "args": [
+                "build",
+                "-c", "Release",
+                "-p:Platform=x64"
+            ],
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        }
+    ]
+}
