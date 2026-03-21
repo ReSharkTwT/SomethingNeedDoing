@@ -26,24 +26,22 @@ public unsafe class AddonWrapper(string name) : IWrapper
     [LuaDocs] public AtkValueWrapper GetAtkValue(int index) => new(Addon->AtkValues[index]);
 
     [LuaDocs]
-    public unsafe IEnumerable<AtkValueWrapper> AtkValues
+    public AtkValueWrapper[] AtkValues
     {
         get
         {
-            foreach (var v in AtkValuesList)
-                yield return new AtkValueWrapper(v);
+            return AtkValuesList.Select(v => new AtkValueWrapper(v)).ToArray();
         }
     }
 
     [LuaDocs] public NodeWrapper GetNode(params int[] nodeIds) => new(Addon, nodeIds);
 
     [LuaDocs]
-    public unsafe IEnumerable<NodeWrapper> Nodes
+    public NodeWrapper[] Nodes // 1. 返回类型改为数组 []
     {
         get
         {
-            foreach (var node in NodeList)
-                yield return new NodeWrapper(node);
+            return NodeList.Select(v => new NodeWrapper(v)).ToArray();
         }
     }
 
