@@ -1,6 +1,8 @@
 using AutoRetainerAPI;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using Dalamud.Game.Chat;
+using Dalamud.Game.DutyState;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Hooking;
@@ -37,6 +39,9 @@ public class MacroScheduler : IMacroScheduler, IDisposable
     private readonly ConcurrentDictionary<string, DateTime> _lastStartAttempt = []; // throttle rapid start attempts
     private readonly ConcurrentDictionary<string, Task> _startingMacros = []; // track macros currently starting to prevent concurrent starts
     private readonly ConcurrentDictionary<string, (bool isValid, DateTime timestamp)> _cachedValidationResults = []; // cache plugin/config validation
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _triggerRefreshDebounceCts = [];
+
+    private const int TriggerRefreshDebounceMs = 500;
 
     private readonly NativeMacroEngine _nativeEngine;
     private readonly NLuaMacroEngine _luaEngine;
@@ -60,7 +65,7 @@ public class MacroScheduler : IMacroScheduler, IDisposable
     [Signature("48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 48 89 7C 24 ?? 41 56 48 83 EC 30 4C 8B 74 24 ?? 48 8B D9", DetourName = nameof(OnEmoteFuncDetour))]
     private readonly Hook<OnEmoteFuncDelegate> OnEmoteFuncHook = null!;
 
-    public MacroScheduler(NativeMacroEngine nativeEngine, NLuaMacroEngine luaEngine, TriggerEventManager triggerEventManager, MacroHierarchyManager hierarchyManager, WindowSystem windowSystem, Core.MetadataParser metadataParser, IEnumerable<IDisableable> disableablePlugins)
+    public MacroScheduler(NativeMacroEngine nativeEngine, NLuaMacroEngine luaEngine, TriggerEventManager triggerEventManager, MacroHierarchyManager hierarchyManager, WindowSystem windowSystem, MetadataParser metadataParser, IEnumerable<IDisableable> disableablePlugins)
     {
         Svc.Hook.InitializeFromAttributes(this);
         OnEmoteFuncHook?.Enable();
@@ -514,6 +519,27 @@ public class MacroScheduler : IMacroScheduler, IDisposable
     }
 
     /// <inheritdoc/>
+    public void RefreshTriggersFromContent(ConfigMacro macro, bool refreshFunctionTriggersIfRunning = true)
+    {
+        ArgumentNullException.ThrowIfNull(macro);
+
+        var oldTriggers = macro.Metadata.TriggerEvents.ToList();
+        foreach (var triggerEvent in oldTriggers)
+            UnsubscribeFromTriggerEvent(macro, triggerEvent);
+
+        _metadataParser.ParseMetadata(macro.Content, macro.Metadata);
+
+        foreach (var triggerEvent in macro.Metadata.TriggerEvents)
+            SubscribeToTriggerEvent(macro, triggerEvent);
+
+        if (refreshFunctionTriggersIfRunning && _macroStates.ContainsKey(macro.Id) && _macroStates.TryGetValue(macro.Id, out var state))
+        {
+            UnregisterFunctionTriggers(state.Macro);
+            RegisterFunctionTriggers(state.Macro);
+        }
+    }
+
+    /// <inheritdoc/>
     public void StopAllMacros() => _enginesByMacroId.Keys.Each(StopMacro);
 
     /// <inheritdoc/>
@@ -704,6 +730,49 @@ public class MacroScheduler : IMacroScheduler, IDisposable
     {
         FrameworkLogger.Verbose($"Macro content changed for {e.MacroId}, invalidating function cache");
         InvalidateFunctionCache(e.MacroId);
+
+        if (C.GetMacro(e.MacroId) is null)
+            return;
+
+        if (_triggerRefreshDebounceCts.TryGetValue(e.MacroId, out var oldCts))
+        {
+            oldCts.Cancel();
+            try
+            {
+                oldCts.Dispose();
+            }
+            catch { }
+        }
+
+        var cts = new CancellationTokenSource();
+        _triggerRefreshDebounceCts[e.MacroId] = cts;
+
+        var macroId = e.MacroId;
+        _ = Task.Delay(TriggerRefreshDebounceMs, cts.Token).ContinueWith(
+            t =>
+            {
+                if (!t.IsCompletedSuccessfully || cts.Token.IsCancellationRequested)
+                    return;
+
+                Svc.Framework.RunOnTick(() =>
+                {
+                    if (!_triggerRefreshDebounceCts.TryGetValue(macroId, out var current) || !ReferenceEquals(current, cts))
+                        return;
+
+                    _triggerRefreshDebounceCts.TryRemove(macroId, out _);
+                    try
+                    {
+                        cts.Dispose();
+                    }
+                    catch { }
+
+                    if (C.GetMacro(macroId) is ConfigMacro configMacro)
+                        RefreshTriggersFromContent(configMacro);
+                });
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default);
     }
 
     #region Triggers
@@ -902,17 +971,17 @@ public class MacroScheduler : IMacroScheduler, IDisposable
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnConditionChange, eventData);
     }
 
-    private void OnTerritoryChanged(ushort territoryType)
+    private void OnTerritoryChanged(uint territoryType)
     {
         var eventData = new Dictionary<string, object> { { "territoryType", territoryType } };
         FrameworkLogger.Verbose($"[{nameof(OnTerritoryChanged)}] fired [{territoryType}]");
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnTerritoryChange, eventData);
     }
 
-    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    private void OnChatMessage(IHandleableChatMessage message)
     {
-        var eventData = new Dictionary<string, object> { { "type", type }, { "timestamp", timestamp }, { "sender", sender.TextValue }, { "message", message.TextValue }, { "isHandled", isHandled } };
-        FrameworkLogger.Verbose($"[{nameof(OnChatMessage)}] fired [{type}, {timestamp}, {sender}, {message}, {isHandled}]");
+        var eventData = new Dictionary<string, object> { { "type", message.LogKind }, { "timestamp", message.Timestamp }, { "sender", message.Sender.TextValue }, { "message", message.Message.TextValue }, { "isHandled", message.IsHandled } };
+        FrameworkLogger.Verbose($"[{nameof(OnChatMessage)}] fired [{message.LogKind}, {message.Timestamp}, {message.Sender}, {message.Message.TextValue}, {message.IsHandled}]");
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnChatMessage, eventData);
     }
 
@@ -929,21 +998,21 @@ public class MacroScheduler : IMacroScheduler, IDisposable
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnLogout, eventData);
     }
 
-    private void OnDutyStarted(object? sender, ushort e)
+    private void OnDutyStarted(IDutyStateEventArgs args)
     {
-        FrameworkLogger.Verbose($"[{nameof(OnDutyStarted)}] fired [{e}]");
+        FrameworkLogger.Verbose($"[{nameof(OnDutyStarted)}] fired [{args}]");
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnDutyStarted);
     }
 
-    private void OnDutyWiped(object? sender, ushort e)
+    private void OnDutyWiped(IDutyStateEventArgs args)
     {
-        FrameworkLogger.Verbose($"[{nameof(OnDutyWiped)}] fired [{e}]");
+        FrameworkLogger.Verbose($"[{nameof(OnDutyWiped)}] fired [{args}]");
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnDutyWiped);
     }
 
-    private void OnDutyCompleted(object? sender, ushort e)
+    private void OnDutyCompleted(IDutyStateEventArgs args)
     {
-        FrameworkLogger.Verbose($"[{nameof(OnDutyCompleted)}] fired [{e}]");
+        FrameworkLogger.Verbose($"[{nameof(OnDutyCompleted)}] fired [{args}]");
         _ = _triggerEventManager.RaiseTriggerEvent(TriggerEvent.OnDutyCompleted);
     }
 
@@ -1075,6 +1144,18 @@ public class MacroScheduler : IMacroScheduler, IDisposable
         _cachedValidationResults.Clear();
 
         C.Macros.ForEach(m => m.ContentChanged -= OnMacroContentChanged);
+
+        foreach (var (_, debounceCts) in _triggerRefreshDebounceCts)
+        {
+            debounceCts.Cancel();
+            try
+            {
+                debounceCts.Dispose();
+            }
+            catch { }
+        }
+
+        _triggerRefreshDebounceCts.Clear();
 
         Svc.Framework.Update -= OnFrameworkUpdate;
         Svc.Condition.ConditionChange -= OnConditionChange;

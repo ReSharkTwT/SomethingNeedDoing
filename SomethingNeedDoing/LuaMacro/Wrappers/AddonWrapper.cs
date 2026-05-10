@@ -3,9 +3,9 @@ using ECommons.Logging;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using FFXIVClientStructs.Interop;
 using SomethingNeedDoing.Core.Interfaces;
-using ValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
 
 namespace SomethingNeedDoing.LuaMacro.Wrappers;
+
 public unsafe class AddonWrapper(string name) : IWrapper
 {
     private AtkUnitBase* Addon => (AtkUnitBase*)Svc.GameGui.GetAddonByName(name).Address;
@@ -93,6 +93,6 @@ public class AtkValueWrapper(AtkValue value) : IWrapper
 {
     private AtkValue Value = value;
 
-    [LuaDocs] public string ValueString => Value.Type is ValueType.String ? Value.String.AsReadOnlySeStringSpan().ToString() : Value.GetValueAsString();
+    [LuaDocs] public string ValueString => Value.Type is AtkValueType.String ? Value.String.AsReadOnlySeStringSpan().ToString() : Value.GetValueAsString();
 
 }
